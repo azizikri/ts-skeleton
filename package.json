@@ -21,11 +21,16 @@
     "db:start": "turbo -F server db:start",
     "db:watch": "turbo -F server db:watch",
     "db:stop": "turbo -F server db:stop",
-    "db:down": "turbo -F server db:down"
+    "db:down": "turbo -F server db:down",
+    "prepare": "husky",
+    "typecheck:changed": "turbo run check-types --since=origin/main...",
+    "test:changed": "turbo run test --since=origin/main..."
   },
   "dependencies": {},
   "devDependencies": {
     "@biomejs/biome": "2.1.2",
+    "@commitlint/cli": "^19.8.1",
+    "@commitlint/config-conventional": "^19.8.1",
     "husky": "^9.1.7",
     "lint-staged": "^16.1.5",
     "oxlint": "^1.11.2",
@@ -33,6 +38,9 @@
     "ultracite": "5.1.1"
   },
   "lint-staged": {
+    "*.{js,jsx,ts,tsx}": [
+      "oxlint --max-warnings=0"
+    ],
     "*.{js,jsx,ts,tsx,json,jsonc,css,scss,md,mdx}": [
       "npx ultracite format"
     ]
