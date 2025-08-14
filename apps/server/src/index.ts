@@ -49,7 +49,7 @@ app.notFound((c) =>
 );
 
 app.onError((err, c) => {
-  const isProd = env.ENVIRONMENT === 'production';
+  const isProd = env.NODE_ENV === 'production';
   const status = (err as any)?.status ?? 500;
   return c.json(
     {

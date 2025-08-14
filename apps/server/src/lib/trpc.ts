@@ -2,7 +2,7 @@ import { initTRPC, TRPCError } from '@trpc/server';
 import { env } from '@/env';
 import type { Context } from './context';
 
-const isProd = env.ENVIRONMENT === 'production';
+const isProd = env.NODE_ENV === 'production';
 
 export const t = initTRPC.context<Context>().create({
   errorFormatter({ shape, error }) {
