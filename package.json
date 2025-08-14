@@ -23,8 +23,8 @@
     "db:stop": "turbo -F server db:stop",
     "db:down": "turbo -F server db:down",
     "prepare": "husky",
-    "typecheck:changed": "turbo run check-types --since=origin/main...",
-    "test:changed": "turbo run test --since=origin/main..."
+    "typecheck:changed": "turbo run check-types --affected",
+    "test:changed": "turbo run test --affected"
   },
   "dependencies": {
     "@packages/logger": "workspace:*",
