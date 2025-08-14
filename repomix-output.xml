@@ -66,8 +66,10 @@ apps/
         auth.ts
         context.ts
         trpc.ts
+        types.ts
       middlewares/
-        errorHandler.ts
+        error-handler.ts
+        logger.ts
       routers/
         index.ts
         todo.ts
@@ -112,6 +114,7 @@ apps/
       env.ts
       index.css
       main.tsx
+      routeTree.gen.ts
     .env.example
     .gitignore
     components.json
@@ -120,6 +123,13 @@ apps/
     tsconfig.json
     vite.config.ts
     wrangler.jsonc
+packages/
+  logger/
+    src/
+      index.ts
+    .gitignore
+    package.json
+    tsconfig.json
 .gitignore
 .oxlintrc.json
 biome.json
@@ -135,56 +145,6 @@ turbo.json
 
 <files>
 This section contains the contents of the repository's files.
-
-<file path="apps/server/src/middlewares/errorHandler.ts">
-import type { Context, Next } from 'hono';
-import { HTTPException } from 'hono/http-exception';
-
-const isProd = process.env.NODE_ENV === 'production';
-
-type ErrorBody = {
-  status: number;
-  error: string;
-  message: string;
-  stack?: string;
-};
-
-function toBody(
-  status: number,
-  error: string,
-  message: string,
-  stack?: string
-): ErrorBody {
-  return { status, error, message, stack: isProd ? undefined : stack };
-}
-
-export async function errorHandler(c: Context, next: Next) {
-  try {
-    await next();
-  } catch (err) {
-    // biome-ignore lint/suspicious/noExplicitAny: for error
-    const e = err as any;
-    if (e instanceof HTTPException) {
-      const status = e.status ?? 500;
-      return c.json(
-        toBody(status, 'HTTPException', e.message, e.stack),
-        status
-      );
-    }
-    const status = typeof e?.status === 'number' ? e.status : 500;
-    const message = e?.message ?? 'Internal Server Error';
-    return c.json(
-      toBody(
-        status,
-        status >= 500 ? 'InternalServerError' : 'Error',
-        message,
-        e?.stack
-      ),
-      status
-    );
-  }
-}
-</file>
 
 <file path=".github/workflows/db-migrate.yml">
 name: Apply DB migrations
@@ -375,38 +335,50 @@ export async function createContext({ context }: CreateContextOptions) {
 export type Context = Awaited<ReturnType<typeof createContext>>;
 </file>
 
-<file path="apps/server/src/lib/trpc.ts">
-import { initTRPC, TRPCError } from '@trpc/server';
-import { env } from '@/env';
-import type { Context } from './context';
+<file path="apps/server/src/middlewares/logger.ts">
+import { createLogger } from '@packages/logger';
+import type { MiddlewareHandler } from 'hono';
+import type { Logger } from 'pino';
 
-const isProd = env.NODE_ENV === 'production';
+export const baseLogger: Logger = createLogger({ name: 'server' });
 
-export const t = initTRPC.context<Context>().create({
-  errorFormatter({ shape, error }) {
-    return {
-      ...shape,
-      data: {
-        ...shape.data,
-        cause: error.cause,
-        stack: isProd ? undefined : error.stack,
+export const requestLogger: MiddlewareHandler = async (c, next) => {
+  const start = Date.now();
+  const id = crypto.randomUUID();
+  const child = baseLogger.child({
+    reqId: id,
+    req: {
+      method: c.req.method,
+      path: c.req.path,
+      ip: c.req.header('x-forwarded-for') || c.req.header('cf-connecting-ip'),
+    },
+  });
+
+  c.set('logger', child);
+  try {
+    await next();
+    const ms = Date.now() - start;
+    child.info(
+      {
+        res: { status: c.res.status },
+        duration_ms: ms,
       },
-    };
-  },
-});
-export const router = t.router;
-export const publicProcedure = t.procedure;
-
-export const protectedProcedure = t.procedure.use(({ ctx, next }) => {
-  if (!ctx.session) {
-    throw new TRPCError({
-      code: 'UNAUTHORIZED',
-      message: 'Authentication required',
-      cause: 'No session',
-    });
+      'request.completed'
+    );
+  } catch (err) {
+    const ms = Date.now() - start;
+    child.error(
+      {
+        err,
+        // biome-ignore lint/suspicious/noExplicitAny: <for error>
+        res: { status: (err as any)?.status ?? 500 },
+        duration_ms: ms,
+      },
+      'request.failed'
+    );
+    throw err;
   }
-  return next({ ctx: { ...ctx, session: ctx.session } });
-});
+};
 </file>
 
 <file path="apps/server/src/routers/index.ts">
@@ -466,26 +438,6 @@ export const todoRouter = router({
       return await db.delete(todo).where(eq(todo.id, input.id));
     }),
 });
-</file>
-
-<file path="apps/server/src/env.ts">
-import { z } from 'zod';
-import 'dotenv/config';
-
-const envSchema = z.object({
-  ENVIRONMENT: z
-    .enum(['development', 'production', 'test'])
-    .default('development'),
-  DATABASE_URL: z.url(),
-  CORS_ORIGIN: z.url(),
-  BETTER_AUTH_SECRET: z.string().min(1),
-  BETTER_AUTH_URL: z.url(),
-});
-
-export const env = envSchema.parse(process.env);
-export type Environment = {
-  Bindings: z.infer<typeof envSchema>;
-};
 </file>
 
 <file path="apps/server/.env.example">
@@ -1931,16 +1883,6 @@ function TodosRoute() {
 }
 </file>
 
-<file path="apps/web/src/env.ts">
-import { z } from 'zod';
-
-const envSchema = z.object({
-  VITE_SERVER_URL: z.string().url(),
-});
-
-export const env = envSchema.parse(import.meta.env);
-</file>
-
 <file path="apps/web/src/index.css">
 @import "tailwindcss";
 @import "tw-animate-css";
@@ -2119,6 +2061,122 @@ if (!rootElement.innerHTML) {
 }
 </file>
 
+<file path="apps/web/src/routeTree.gen.ts">
+/* eslint-disable */
+
+// @ts-nocheck
+
+// noinspection JSUnusedGlobalSymbols
+
+// This file was automatically generated by TanStack Router.
+// You should NOT make any changes in this file as it will be overwritten.
+// Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
+
+import { Route as rootRouteImport } from './routes/__root'
+import { Route as TodosRouteImport } from './routes/todos'
+import { Route as LoginRouteImport } from './routes/login'
+import { Route as DashboardRouteImport } from './routes/dashboard'
+import { Route as IndexRouteImport } from './routes/index'
+
+const TodosRoute = TodosRouteImport.update({
+  id: '/todos',
+  path: '/todos',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DashboardRoute = DashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+
+export interface FileRoutesByFullPath {
+  '/': typeof IndexRoute
+  '/dashboard': typeof DashboardRoute
+  '/login': typeof LoginRoute
+  '/todos': typeof TodosRoute
+}
+export interface FileRoutesByTo {
+  '/': typeof IndexRoute
+  '/dashboard': typeof DashboardRoute
+  '/login': typeof LoginRoute
+  '/todos': typeof TodosRoute
+}
+export interface FileRoutesById {
+  __root__: typeof rootRouteImport
+  '/': typeof IndexRoute
+  '/dashboard': typeof DashboardRoute
+  '/login': typeof LoginRoute
+  '/todos': typeof TodosRoute
+}
+export interface FileRouteTypes {
+  fileRoutesByFullPath: FileRoutesByFullPath
+  fullPaths: '/' | '/dashboard' | '/login' | '/todos'
+  fileRoutesByTo: FileRoutesByTo
+  to: '/' | '/dashboard' | '/login' | '/todos'
+  id: '__root__' | '/' | '/dashboard' | '/login' | '/todos'
+  fileRoutesById: FileRoutesById
+}
+export interface RootRouteChildren {
+  IndexRoute: typeof IndexRoute
+  DashboardRoute: typeof DashboardRoute
+  LoginRoute: typeof LoginRoute
+  TodosRoute: typeof TodosRoute
+}
+
+declare module '@tanstack/react-router' {
+  interface FileRoutesByPath {
+    '/todos': {
+      id: '/todos'
+      path: '/todos'
+      fullPath: '/todos'
+      preLoaderRoute: typeof TodosRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/dashboard': {
+      id: '/dashboard'
+      path: '/dashboard'
+      fullPath: '/dashboard'
+      preLoaderRoute: typeof DashboardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+  }
+}
+
+const rootRouteChildren: RootRouteChildren = {
+  IndexRoute: IndexRoute,
+  DashboardRoute: DashboardRoute,
+  LoginRoute: LoginRoute,
+  TodosRoute: TodosRoute,
+}
+export const routeTree = rootRouteImport
+  ._addFileChildren(rootRouteChildren)
+  ._addFileTypes<FileRouteTypes>()
+</file>
+
 <file path="apps/web/.env.example">
 VITE_SERVER_URL=
 </file>
@@ -2280,6 +2338,120 @@ export default defineConfig({
   "assets": {
     "not_found_handling": "single-page-application"
   }
+}
+</file>
+
+<file path="packages/logger/src/index.ts">
+import pino, { type Logger, type LoggerOptions } from 'pino';
+
+type CreateLoggerOpts = {
+  name?: string;
+  level?: pino.LevelWithSilent;
+  env?: 'development' | 'test' | 'production';
+};
+
+const redact: LoggerOptions['redact'] = {
+  paths: [
+    'req.headers.authorization',
+    'req.headers.cookie',
+    'response.headers["set-cookie"]',
+    'body.password',
+    'body.token',
+  ],
+  remove: true,
+};
+
+export function createLogger(opts: CreateLoggerOpts = {}): Logger {
+  const logEnv =
+    opts.env ??
+    (process.env.NODE_ENV as 'development' | 'test' | 'production') ??
+    'development';
+  const base: LoggerOptions = {
+    name: opts.name ?? 'ts-skeleton',
+    level:
+      opts.level ??
+      process.env.LOG_LEVEL ??
+      (logEnv === 'test' ? 'silent' : 'info'),
+    enabled: process.env.NO_LOG !== '1',
+    redact,
+    timestamp: pino.stdTimeFunctions.isoTime,
+  };
+
+  // pretty only for local dev
+  const transport =
+    logEnv === 'development'
+      ? {
+          target: 'pino-pretty',
+          options: {
+            colorize: true,
+            singleLine: false,
+            translateTime: 'SYS:standard',
+          },
+        }
+      : undefined;
+
+  return pino({ ...base, transport });
+}
+</file>
+
+<file path="packages/logger/.gitignore">
+dist
+</file>
+
+<file path="packages/logger/package.json">
+{
+  "name": "@packages/logger",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "dev": "bun run --hot src/index.ts",
+    "clean": "rimraf dist"
+  },
+  "dependencies": {
+    "pino": "^9.9.0",
+    "pino-pretty": "^13.1.1"
+  },
+  "devDependencies": {
+    "tsdown": "^0.12.9",
+    "typescript": "^5.9.2"
+  }
+}
+</file>
+
+<file path="packages/logger/tsconfig.json">
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "declaration": true,
+    "declarationMap": true,
+    "emitDeclarationOnly": false,
+
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "strict": true,
+    "skipLibCheck": true,
+    "verbatimModuleSyntax": true
+  },
+  "include": ["src"]
 }
 </file>
 
@@ -2577,79 +2749,6 @@ ts-skeleton/
 - `bun check`: Run Biome formatting and linting
 </file>
 
-<file path="TODO.md">
-# Fullstack TypeScript Skeleton - Feature Checklist
-
-A checklist to track which production-ready features are implemented in your skeleton.
-
----
-
-## 1. Project Foundations ✅
-
-- [✅] **Env management** - `.env` with schema validation (zod / envsafe)
-- [✅] **Git hooks** - Husky + lint-staged + type check on commit
-- [✅] **CI/CD** - GitHub Actions or GitLab CI for build, test, deploy
-- [✅] **Monorepo caching** - Turborepo config tuned for CI
-
----
-
-## 2. Backend Enhancements 🛠
-
-- [ ] **Centralized error handling** - Hono middleware + tRPC error formatter
-- [ ] **Logging** - Structured logging (pino / winston) + Hono Binding
-- [ ] **Testing** - Vitest + supertest/hono/testing
-- [ ] **Caching** - Redis / Upstash integration
-- [ ] **Job queues** - BullMQ / Cloudflare Queues
-- [ ] **File uploads** - S3 / R2 integration
-- [ ] **Database seeding** - drizzle-kit seeds or factory scripts
-
----
-
-## 3. Frontend Enhancements 🎨
-
-- [ ] **State management** - Zustand / Jotai for local state
-- [ ] **Form validation** - Extend zod with react-hook-form
-- [ ] **SEO** - Meta tags via TanStack Router head or react-helmet
-- [ ] **Dynamic theming** - Presets and user preferences
-- [ ] **UI component library** - Storybook for isolated UI development
-
----
-
-## 4. Developer Experience 🚀
-
-- [ ] **API client generation** - @trpc/codegen for typed clients
-- [ ] **Database migrations** - CI-friendly Drizzle config
-- [ ] **Hot reload everywhere** - Auto reload backend + frontend
-- [ ] **E2E testing** - Playwright / Cypress
-- [ ] **Mock API / data** - MSW for local frontend testing
-
----
-
-## 5. Deployment & Infra ☁️
-
-- [ ] **Docker production image** - Multi-stage build & optimized size
-- [ ] **Monitoring** - Sentry / Logflare
-- [ ] **Analytics** - Plausible / PostHog
-- [ ] **Reverse proxy** - Nginx / Cloudflare Workers unified entrypoint
-- [ ] **CDN caching** - Cloudflare / Fastly integration
-
----
-
-### Legend
-
-- ✅ Completed
-- 🛠 In Progress
-- ❌ Not Started
-</file>
-
-<file path="tsconfig.json">
-{
-  "compilerOptions": {
-    "strictNullChecks": true
-  }
-}
-</file>
-
 <file path=".github/workflows/ci.yml">
 name: CI
 
@@ -2734,20 +2833,6 @@ if git diff --name-only HEAD@{1}..HEAD | grep -qE '(^|/)(bun\.lock|package-lock\
 fi
 </file>
 
-<file path=".husky/pre-push">
-set -euo pipefail
-root="$(git rev-parse --show-toplevel)"
-cd "$root"
-
-if git rev-parse --verify origin/main >/dev/null 2>&1; then
-  bun run typecheck:changed
-  # bun run test:changed     # enable once tests exist
-else
-  bun run check-types
-  # bun run test             # enable once tests exist
-fi
-</file>
-
 <file path="apps/server/src/db/schema/auth.ts">
 import { boolean, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
 
@@ -2802,104 +2887,68 @@ export const verification = pgTable('verification', {
 });
 </file>
 
-<file path="apps/server/src/db/index.ts">
-import { drizzle } from 'drizzle-orm/node-postgres';
-import { env } from '@/env';
+<file path="apps/server/src/lib/types.ts">
+import type { PinoLogger } from 'hono-pino';
+import type { Environment } from '@/env';
 
-export const db = drizzle(env.DATABASE_URL);
+export type AppBindings = {
+  Bindings: Environment;
+  Variables: {
+    logger: PinoLogger;
+  };
+};
 </file>
 
-<file path="apps/server/src/lib/auth.ts">
-import { betterAuth } from 'better-auth';
-import { drizzleAdapter } from 'better-auth/adapters/drizzle';
-import { db } from '@/db';
-import { account, session, user, verification } from '@/db/schema/auth';
-import { env } from '@/env';
+<file path="apps/server/src/middlewares/error-handler.ts">
+import type { Context, Next } from 'hono';
+import { HTTPException } from 'hono/http-exception';
 
-export const auth = betterAuth({
-  database: drizzleAdapter(db, {
-    provider: 'pg',
-    schema: {
-      account,
-      session,
-      user,
-      verification,
-    },
-  }),
-  trustedOrigins: [env.CORS_ORIGIN],
-  emailAndPassword: {
-    enabled: true,
-  },
-  secret: env.BETTER_AUTH_SECRET,
-  baseURL: env.BETTER_AUTH_URL,
-});
-</file>
+const isProd = process.env.NODE_ENV === 'production';
 
-<file path="apps/server/src/index.ts">
-/** biome-ignore-all lint/suspicious/noExplicitAny: for error */
-import { trpcServer } from '@hono/trpc-server';
-import { Hono } from 'hono';
-import { cors } from 'hono/cors';
-import { logger } from 'hono/logger';
-import { type Environment, env } from './env';
-import { auth } from './lib/auth';
-import { createContext } from './lib/context';
-import { errorHandler } from './middlewares/errorHandler';
-import { appRouter } from './routers/index';
+type ErrorBody = {
+  status: number;
+  error: string;
+  message: string;
+  stack?: string;
+};
 
-const app = new Hono<Environment>();
+function toBody(
+  status: number,
+  error: string,
+  message: string,
+  stack?: string
+): ErrorBody {
+  return { status, error, message, stack: isProd ? undefined : stack };
+}
 
-app.use(logger());
-app.use(
-  '/*',
-  cors({
-    origin: env.CORS_ORIGIN,
-    allowMethods: ['GET', 'POST', 'OPTIONS'],
-    allowHeaders: ['Content-Type', 'Authorization'],
-    credentials: true,
-  })
-);
-
-app.use('*', errorHandler);
-
-app.on(['POST', 'GET'], '/api/auth/**', (c) => auth.handler(c.req.raw));
-
-app.use(
-  '/trpc/*',
-  trpcServer({
-    router: appRouter,
-    createContext: (_opts, context) => createContext({ context }),
-  })
-);
-
-app.get('/', (c) => c.text('OK'));
-
-app.notFound((c) =>
-  c.json(
-    {
-      status: 404,
-      error: 'NotFound',
-      message: `Route ${c.req.method} ${c.req.path} not found`,
-    },
-    404
-  )
-);
-
-app.onError((err, c) => {
-  const isProd = env.NODE_ENV === 'production';
-  const status = (err as any)?.status ?? 500;
-  return c.json(
-    {
-      status,
-      error: err.name ?? 'Error',
-      message: err.message ?? 'Internal Server Error',
-      stack: isProd ? undefined : (err as any)?.stack,
-    },
-    status
-  );
-});
-
-export default app;
+export async function errorHandler(c: Context, next: Next) {
+  try {
+    await next();
+  } catch (err) {
+    // biome-ignore lint/suspicious/noExplicitAny: for error
+    const e = err as any;
+    if (e instanceof HTTPException) {
+      const status = e.status ?? 500;
+      return c.json(
+        toBody(status, 'HTTPException', e.message, e.stack),
+        status
+      );
+    }
+    const status = typeof e?.status === 'number' ? e.status : 500;
+    const message = e?.message ?? 'Internal Server Error';
+    const logger = c.var?.logger;
+    logger?.error({ err, status }, 'unhandled.error');
+    return c.json(
+      toBody(
+        status,
+        status >= 500 ? 'InternalServerError' : 'Error',
+        message,
+        e?.stack
+      ),
+      status
+    );
+  }
+}
 </file>
 
 <file path="apps/server/drizzle.config.ts">
@@ -2914,47 +2963,6 @@ export default defineConfig({
     url: env.DATABASE_URL,
   },
 });
-</file>
-
-<file path="apps/server/package.json">
-{
-  "name": "server",
-  "main": "src/index.ts",
-  "type": "module",
-  "scripts": {
-    "build": "tsdown",
-    "check-types": "tsc -b",
-    "compile": "bun build --compile --minify --sourcemap --bytecode ./src/index.ts --outfile server",
-    "dev": "bun run --hot src/index.ts",
-    "start": "bun run dist/index.js",
-    "db:push": "drizzle-kit push",
-    "db:studio": "drizzle-kit studio",
-    "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
-    "db:start": "docker compose up -d",
-    "db:watch": "docker compose up",
-    "db:stop": "docker compose stop",
-    "db:down": "docker compose down"
-  },
-  "dependencies": {
-    "@hono/trpc-server": "^0.4.0",
-    "@trpc/client": "^11.4.4",
-    "@trpc/server": "^11.4.4",
-    "better-auth": "^1.3.6",
-    "dotenv": "^17.2.1",
-    "drizzle-orm": "^0.44.4",
-    "hono": "^4.9.1",
-    "pg": "^8.16.3",
-    "zod": "^4.0.17"
-  },
-  "devDependencies": {
-    "@types/bun": "^1.2.20",
-    "@types/pg": "^8.15.5",
-    "drizzle-kit": "^0.31.4",
-    "tsdown": "^0.12.9",
-    "typescript": "^5.9.2"
-  }
-}
 </file>
 
 <file path="apps/server/tsconfig.json">
@@ -3086,6 +3094,138 @@ export const trpc = createTRPCOptionsProxy<AppRouter>({
 }
 </file>
 
+<file path="tsconfig.json">
+{
+  "compilerOptions": {
+    "strictNullChecks": true
+  }
+}
+</file>
+
+<file path=".husky/pre-commit">
+set -euo pipefail
+root="$(git rev-parse --show-toplevel)"
+cd "$root"
+
+bunx lint-staged
+</file>
+
+<file path=".husky/pre-push">
+set -euo pipefail
+
+root="$(git rev-parse --show-toplevel)"
+cd "$root"
+
+# Generate repo mix and stage changes
+bunx repomix .
+git add .
+
+if git rev-parse --verify origin/main >/dev/null 2>&1; then
+  bun run typecheck:changed
+  # bun run test:changed     # enable once tests exist
+else
+  bun run check-types
+  # bun run test             # enable once tests exist
+fi
+</file>
+
+<file path="apps/server/src/db/index.ts">
+import { drizzle } from 'drizzle-orm/node-postgres';
+import { env } from '@/env';
+
+export const db = drizzle(env.DATABASE_URL, {
+  logger: true,
+});
+</file>
+
+<file path="apps/server/src/lib/auth.ts">
+import { createLogger } from '@packages/logger';
+import { betterAuth } from 'better-auth';
+import { drizzleAdapter } from 'better-auth/adapters/drizzle';
+import { db } from '@/db';
+import { account, session, user, verification } from '@/db/schema/auth';
+import { env } from '@/env';
+
+const authLogger = createLogger({ name: 'auth' });
+
+authLogger.info(
+  { env: env.NODE_ENV ?? 'development', db: 'postgres' },
+  'initializing better-auth'
+);
+
+export const auth = betterAuth({
+  database: drizzleAdapter(db, {
+    provider: 'pg',
+    schema: { account, session, user, verification },
+  }),
+  trustedOrigins: [env.CORS_ORIGIN],
+  emailAndPassword: { enabled: true },
+  secret: env.BETTER_AUTH_SECRET,
+  baseURL: env.BETTER_AUTH_URL,
+});
+
+export function logAuthError(err: unknown, where: string) {
+  authLogger.error({ err }, `auth error: ${where}`);
+}
+
+export const authLog = authLogger;
+</file>
+
+<file path="apps/server/package.json">
+{
+  "name": "server",
+  "main": "src/index.ts",
+  "type": "module",
+  "scripts": {
+    "build": "tsdown",
+    "check-types": "tsc -b",
+    "compile": "bun build --compile --minify --sourcemap --bytecode ./src/index.ts --outfile server",
+    "dev": "bun run --hot src/index.ts",
+    "start": "bun run dist/index.js",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:start": "docker compose up -d",
+    "db:watch": "docker compose up",
+    "db:stop": "docker compose stop",
+    "db:down": "docker compose down"
+  },
+  "dependencies": {
+    "@hono/trpc-server": "^0.4.0",
+    "@trpc/client": "^11.4.4",
+    "@trpc/server": "^11.4.4",
+    "better-auth": "^1.3.6",
+    "dotenv": "^17.2.1",
+    "drizzle-orm": "^0.44.4",
+    "hono": "^4.9.1",
+    "hono-pino": "^0.10.1",
+    "pg": "^8.16.3",
+    "zod": "^4.0.17"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.20",
+    "@types/pg": "^8.15.5",
+    "drizzle-kit": "^0.31.4",
+    "tsdown": "^0.12.9",
+    "typescript": "^5.9.2"
+  }
+}
+</file>
+
+<file path="apps/web/src/env.ts">
+import { z } from 'zod';
+
+const envSchema = z.object({
+  NODE_ENV: z
+    .enum(['development', 'production', 'test'])
+    .default('development'),
+  VITE_SERVER_URL: z.url(),
+});
+
+export const env = envSchema.parse(import.meta.env);
+</file>
+
 <file path="turbo.json">
 {
   "$schema": "https://turbo.build/schema.json",
@@ -3110,6 +3250,7 @@ export const trpc = createTRPCOptionsProxy<AppRouter>({
       "dependsOn": ["^check-types"]
     },
     "dev": {
+      "dependsOn": ["^build"],
       "cache": false,
       "persistent": true
     },
@@ -3149,12 +3290,120 @@ export const trpc = createTRPCOptionsProxy<AppRouter>({
 }
 </file>
 
-<file path=".husky/pre-commit">
-set -euo pipefail
-root="$(git rev-parse --show-toplevel)"
-cd "$root"
+<file path="apps/server/src/lib/trpc.ts">
+import { initTRPC } from '@trpc/server';
 
-bunx lint-staged
+export const createContext = ({ c }: { c: import('hono').Context }) => ({
+  logger: c.var.logger.child({ scope: 'trpc' }),
+});
+type Ctx = ReturnType<typeof createContext>;
+
+const t = initTRPC.context<Ctx>().create({
+  errorFormatter({ shape, error, ctx }) {
+    ctx?.logger?.error({ err: error, code: error.code }, 'trpc.error');
+    return shape;
+  },
+});
+
+export const router = t.router;
+export const publicProcedure = t.procedure.use(
+  async ({ ctx, path, next, type }) => {
+    const start = Date.now();
+    ctx.logger.info({ path, type }, 'trpc.start');
+    const res = await next();
+    ctx.logger.info({ path, type, duration_ms: Date.now() - start }, 'trpc.ok');
+    return res;
+  }
+);
+</file>
+
+<file path="apps/server/src/env.ts">
+import { z } from 'zod';
+import 'dotenv/config';
+
+const envSchema = z.object({
+  NODE_ENV: z
+    .enum(['development', 'production', 'test'])
+    .default('development'),
+  DATABASE_URL: z.url(),
+  CORS_ORIGIN: z.url(),
+  BETTER_AUTH_SECRET: z.string().min(1),
+  BETTER_AUTH_URL: z.url(),
+});
+
+export const env = envSchema.parse(process.env);
+export type Environment = z.infer<typeof envSchema>;
+</file>
+
+<file path="TODO.md">
+# Fullstack TypeScript Skeleton - Feature Checklist
+
+A checklist to track which production-ready features are implemented in your skeleton.
+
+---
+
+## 1. Project Foundations ✅
+
+- [✅] **Env management** - `.env` with schema validation (zod / envsafe)
+- [✅] **Git hooks** - Husky + lint-staged + type check on commit
+- [✅] **CI/CD** - GitHub Actions or GitLab CI for build, test, deploy
+- [✅] **Monorepo caching** - Turborepo config tuned for CI
+
+---
+
+## 2. Backend Enhancements 🛠
+
+- [✅] **Centralized error handling** - Hono middleware + tRPC error formatter
+- [✅] **Logging** - Structured logging (pino / winston) + Hono Binding
+- [ ] **Testing** - Vitest + supertest/hono/testing
+- [ ] **Caching** - Redis / Upstash integration
+- [ ] **Job queues** - BullMQ / Cloudflare Queues
+- [ ] **File uploads** - S3 / R2 integration
+- [ ] **Database seeding** - drizzle-kit seeds or factory scripts
+
+---
+
+## 3. Frontend Enhancements 🎨
+
+- [ ] **State management** - Zustand / Jotai for local state
+- [ ] **Form validation** - Extend zod with react-hook-form
+- [ ] **SEO** - Meta tags via TanStack Router head or react-helmet
+- [ ] **Dynamic theming** - Presets and user preferences
+- [ ] **UI component library** - Storybook for isolated UI development
+
+---
+
+## 4. Developer Experience 🚀
+
+- [ ] **API client generation** - @trpc/codegen for typed clients
+- [ ] **Database migrations** - CI-friendly Drizzle config
+- [ ] **Hot reload everywhere** - Auto reload backend + frontend
+- [ ] **E2E testing** - Playwright / Cypress
+- [ ] **Mock API / data** - MSW for local frontend testing
+
+---
+
+## 5. Deployment & Infra ☁️
+
+- [ ] **Docker production image** - Multi-stage build & optimized size
+- [ ] **Monitoring** - Sentry / Logflare
+- [ ] **Analytics** - Plausible / PostHog
+- [ ] **Reverse proxy** - Nginx / Cloudflare Workers unified entrypoint
+- [ ] **CDN caching** - Cloudflare / Fastly integration
+
+---
+
+### Legend
+
+- ✅ Completed
+- 🛠 In Progress
+- ❌ Not Started
+
+misc
+
+- dynamic project name
+- split code because of separation of concern
+- path file
 </file>
 
 <file path="package.json">
@@ -3186,7 +3435,10 @@ bunx lint-staged
     "typecheck:changed": "turbo run check-types --since=origin/main...",
     "test:changed": "turbo run test --since=origin/main..."
   },
-  "dependencies": {},
+  "dependencies": {
+    "@packages/logger": "workspace:*",
+    "pino": "^9.9.0"
+  },
   "devDependencies": {
     "@biomejs/biome": "2.1.2",
     "@commitlint/cli": "^19.8.1",
@@ -3194,6 +3446,7 @@ bunx lint-staged
     "husky": "^9.1.7",
     "lint-staged": "^16.1.5",
     "oxlint": "^1.11.2",
+    "pino-pretty": "^13.1.1",
     "turbo": "^2.5.5",
     "ultracite": "5.1.1"
   },
@@ -3207,6 +3460,107 @@ bunx lint-staged
   },
   "packageManager": "bun@1.2.20"
 }
+</file>
+
+<file path="apps/server/src/index.ts">
+/** biome-ignore-all lint/suspicious/noExplicitAny: for error */
+import { trpcServer } from '@hono/trpc-server';
+import { Hono } from 'hono';
+import { cors } from 'hono/cors';
+import { logger } from 'hono/logger';
+import { env } from './env';
+import { auth, authLog } from './lib/auth';
+import { createContext } from './lib/context';
+import type { AppBindings } from './lib/types';
+import { errorHandler } from './middlewares/error-handler';
+import { requestLogger } from './middlewares/logger';
+import { appRouter } from './routers/index';
+
+const app = new Hono<AppBindings>();
+
+app.use(logger());
+app.use(
+  '/*',
+  cors({
+    origin: env.CORS_ORIGIN,
+    allowMethods: ['GET', 'POST', 'OPTIONS'],
+    allowHeaders: ['Content-Type', 'Authorization'],
+    credentials: true,
+  })
+);
+
+app.use('*', requestLogger);
+app.use('*', errorHandler);
+
+app.on(['POST', 'GET'], '/api/auth/**', async (c) => {
+  authLog.info(
+    {
+      method: c.req.method,
+      url: c.req.url,
+    },
+    'Incoming auth request'
+  );
+
+  try {
+    const res = await auth.handler(c.req.raw);
+
+    authLog.info(
+      {
+        status: res.status,
+      },
+      'Auth request handled successfully'
+    );
+
+    return res;
+  } catch (err) {
+    authLog.error(
+      {
+        err,
+        method: c.req.method,
+        url: c.req.url,
+      },
+      'Auth request failed'
+    );
+    throw err; // Let global error handler respond
+  }
+});
+
+app.use(
+  '/trpc/*',
+  trpcServer({
+    router: appRouter,
+    createContext: (_opts, context) => createContext({ context }),
+  })
+);
+
+app.get('/', (c) => c.text('OK'));
+
+app.notFound((c) =>
+  c.json(
+    {
+      status: 404,
+      error: 'NotFound',
+      message: `Route ${c.req.method} ${c.req.path} not found`,
+    },
+    404
+  )
+);
+
+app.onError((err, c) => {
+  const isProd = env.NODE_ENV === 'production';
+  const status = (err as any)?.status ?? 500;
+  return c.json(
+    {
+      status,
+      error: err.name ?? 'Error',
+      message: err.message ?? 'Internal Server Error',
+      stack: isProd ? undefined : (err as any)?.stack,
+    },
+    status
+  );
+});
+
+export default app;
 </file>
 
 </files>

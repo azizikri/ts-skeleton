@@ -1,24 +1,52 @@
-import { initTRPC } from '@trpc/server';
+import { initTRPC, TRPCError } from '@trpc/server';
+import { env } from '@/env';
+import type { Context } from './context';
 
-export const createContext = ({ c }: { c: import('hono').Context }) => ({
-  logger: c.var.logger.child({ scope: 'trpc' }),
-});
-type Ctx = ReturnType<typeof createContext>;
+const isProd = env.NODE_ENV === 'production';
 
-const t = initTRPC.context<Ctx>().create({
+export const t = initTRPC.context<Context>().create({
   errorFormatter({ shape, error, ctx }) {
-    ctx?.logger?.error({ err: error, code: error.code }, 'trpc.error');
-    return shape;
+    ctx?.logger?.error(
+      // biome-ignore lint/suspicious/noExplicitAny: <error>
+      { err: error, path: (error as any)?.path },
+      'tRPC procedure failed'
+    );
+
+    return {
+      ...shape,
+      data: {
+        ...shape.data,
+        cause: error.cause,
+        stack: isProd ? undefined : error.stack,
+      },
+    };
   },
 });
 
 export const router = t.router;
-export const publicProcedure = t.procedure.use(
-  async ({ ctx, path, next, type }) => {
-    const start = Date.now();
-    ctx.logger.info({ path, type }, 'trpc.start');
-    const res = await next();
-    ctx.logger.info({ path, type, duration_ms: Date.now() - start }, 'trpc.ok');
-    return res;
+export const publicProcedure = t.procedure;
+
+export const protectedProcedure = t.procedure.use(
+  ({ ctx, path, type, next }) => {
+    ctx.logger?.info({ path, type }, 'protectedProcedure start');
+
+    if (!ctx.session) {
+      ctx.logger?.warn(
+        { path, type },
+        'Unauthorized access attempt: no session'
+      );
+      throw new TRPCError({
+        code: 'UNAUTHORIZED',
+        message: 'Authentication required',
+        cause: 'No session',
+      });
+    }
+
+    ctx.logger?.info(
+      { path, type, userId: ctx.session.user.id },
+      'protectedProcedure authorized'
+    );
+
+    return next({ ctx: { ...ctx, session: ctx.session } });
   }
 );
