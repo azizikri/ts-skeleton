@@ -7,16 +7,16 @@ A checklist to track which production-ready features are implemented in your ske
 ## 1. Project Foundations ✅
 
 - [✅] **Env management** - `.env` with schema validation (zod / envsafe)
-- [ ] **Git hooks** - Husky + lint-staged + type check on commit
-- [ ] **CI/CD** - GitHub Actions or GitLab CI for build, test, deploy
-- [ ] **Monorepo caching** - Turborepo config tuned for CI
+- [✅] **Git hooks** - Husky + lint-staged + type check on commit
+- [✅] **CI/CD** - GitHub Actions or GitLab CI for build, test, deploy
+- [✅] **Monorepo caching** - Turborepo config tuned for CI
 
 ---
 
 ## 2. Backend Enhancements 🛠
 
 - [ ] **Centralized error handling** - Hono middleware + tRPC error formatter
-- [ ] **Logging** - Structured logging (pino / winston)
+- [ ] **Logging** - Structured logging (pino / winston) + Hono Binding
 - [ ] **Testing** - Vitest + supertest/hono/testing
 - [ ] **Caching** - Redis / Upstash integration
 - [ ] **Job queues** - BullMQ / Cloudflare Queues
