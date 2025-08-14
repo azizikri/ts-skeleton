@@ -1,5 +1,6 @@
 node_modules
 .turbo
+repomix-output.xml
 
 
 # START Ruler Generated Files
