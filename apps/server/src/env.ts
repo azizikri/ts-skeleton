@@ -12,6 +12,4 @@ const envSchema = z.object({
 });
 
 export const env = envSchema.parse(process.env);
-export type Environment = {
-  Bindings: z.infer<typeof envSchema>;
-};
+export type Environment = z.infer<typeof envSchema>;

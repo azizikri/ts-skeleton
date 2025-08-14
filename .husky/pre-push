@@ -1,6 +1,11 @@
 set -euo pipefail
+
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
+
+# Generate repo mix and stage changes
+bunx repomix .
+git add .
 
 if git rev-parse --verify origin/main >/dev/null 2>&1; then
   bun run typecheck:changed

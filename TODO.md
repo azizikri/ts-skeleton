@@ -15,7 +15,7 @@ A checklist to track which production-ready features are implemented in your ske
 
 ## 2. Backend Enhancements 🛠
 
-- [ ] **Centralized error handling** - Hono middleware + tRPC error formatter
+- [✅] **Centralized error handling** - Hono middleware + tRPC error formatter
 - [ ] **Logging** - Structured logging (pino / winston) + Hono Binding
 - [ ] **Testing** - Vitest + supertest/hono/testing
 - [ ] **Caching** - Redis / Upstash integration
