@@ -1,0 +1,22 @@
+name: Apply DB migrations
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/server/src/db/**'
+      - 'apps/server/drizzle.config.ts'
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - name: Install server workspace only
+        run: bun install --frozen-lockfile
+      - name: Drizzle push
+        working-directory: apps/server
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: bun run db:push

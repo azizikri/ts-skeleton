@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: ts-skeleton
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=10s --health-timeout=5s --health-retries=5
+
+    env:
+      # Turborepo Remote Cache (optional)
+      #   TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      #   TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+
+      # Server env used by build/typecheck (never hardcode)
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      CORS_ORIGIN: ${{ secrets.CORS_ORIGIN }}
+      BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
+      BETTER_AUTH_URL: ${{ secrets.BETTER_AUTH_URL }}
+
+      # Speed up repeated builds
+      CI: 'true'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest # or pin
+      # Cache bun + turbo
+      - name: Cache bun installs
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.bun/install/cache
+            **/node_modules
+          key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lockb') }}
+      - name: Cache turborepo
+        uses: actions/cache@v4
+        with:
+          path: |
+            .turbo
+            ~/.cache/turbo
+          key: ${{ runner.os }}-turbo-${{ hashFiles('**/bun.lockb', 'turbo.json') }}
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run check-types
+
+      - name: Lint
+        run: bun run check
+
+      - name: Build
+        run: bun run build
