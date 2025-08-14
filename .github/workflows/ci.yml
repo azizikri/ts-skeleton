@@ -22,17 +22,11 @@ jobs:
           --health-interval=10s --health-timeout=5s --health-retries=5
 
     env:
-      # Turborepo Remote Cache (optional)
-      #   TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-      #   TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
-
-      # Server env used by build/typecheck (never hardcode)
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       CORS_ORIGIN: ${{ secrets.CORS_ORIGIN }}
       BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
       BETTER_AUTH_URL: ${{ secrets.BETTER_AUTH_URL }}
-
-      # Speed up repeated builds
+      VITE_SERVER_URL: ${{ secrets.VITE_SERVER_URL }}
       CI: 'true'
 
     steps:
@@ -40,22 +34,27 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest # or pin
-      # Cache bun + turbo
-      - name: Cache bun installs
+          bun-version: latest
+
+      - name: Restore bun cache and node_modules
         uses: actions/cache@v4
         with:
           path: |
             ~/.bun/install/cache
             **/node_modules
           key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lockb') }}
-      - name: Cache turborepo
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Restore Turborepo cache
         uses: actions/cache@v4
         with:
           path: |
             .turbo
             ~/.cache/turbo
-          key: ${{ runner.os }}-turbo-${{ hashFiles('**/bun.lockb', 'turbo.json') }}
+          key: ${{ runner.os }}-turbo-${{ hashFiles('**/bun.lockb', 'turbo.json', '**/tsconfig.json') }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-
 
       - name: Install
         run: bun install --frozen-lockfile
