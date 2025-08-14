@@ -1,0 +1,13 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+set -euo pipefail
+root="$(git rev-parse --show-toplevel)"
+cd "$root"
+
+if git rev-parse --verify origin/main >/dev/null 2>&1; then
+  bun run typecheck:changed
+  # bun run test:changed     # enable once tests exist
+else
+  bun run check-types
+  # bun run test             # enable once tests exist
+fi

@@ -1,8 +1,4 @@
 #!/usr/bin/env sh
 . "$(dirname -- "$0")/_/husky.sh"
-
 set -euo pipefail
-root="$(git rev-parse --show-toplevel)"
-cd "$root"
-
-bunx lint-staged
+bunx --bun commitlint --edit "$1"
