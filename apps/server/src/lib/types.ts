@@ -1,8 +1,9 @@
+import type { PinoLogger } from 'hono-pino';
 import type { Environment } from '@/env';
 
 export type AppBindings = {
   Bindings: Environment;
-  //   Variables: {
-  //     env: Environment;
-  //   };
+  Variables: {
+    logger: PinoLogger;
+  };
 };

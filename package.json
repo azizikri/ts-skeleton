@@ -27,6 +27,7 @@
     "test:changed": "turbo run test --since=origin/main..."
   },
   "dependencies": {
+    "@packages/logger": "workspace:*",
     "pino": "^9.9.0"
   },
   "devDependencies": {

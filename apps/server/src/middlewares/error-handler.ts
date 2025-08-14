@@ -34,6 +34,8 @@ export async function errorHandler(c: Context, next: Next) {
     }
     const status = typeof e?.status === 'number' ? e.status : 500;
     const message = e?.message ?? 'Internal Server Error';
+    const logger = c.var?.logger;
+    logger?.error({ err, status }, 'unhandled.error');
     return c.json(
       toBody(
         status,

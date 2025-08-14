@@ -4,10 +4,11 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { env } from './env';
-import { auth } from './lib/auth';
+import { auth, authLog } from './lib/auth';
 import { createContext } from './lib/context';
 import type { AppBindings } from './lib/types';
 import { errorHandler } from './middlewares/error-handler';
+import { requestLogger } from './middlewares/logger';
 import { appRouter } from './routers/index';
 
 const app = new Hono<AppBindings>();
@@ -23,9 +24,41 @@ app.use(
   })
 );
 
+app.use('*', requestLogger);
 app.use('*', errorHandler);
 
-app.on(['POST', 'GET'], '/api/auth/**', (c) => auth.handler(c.req.raw));
+app.on(['POST', 'GET'], '/api/auth/**', async (c) => {
+  authLog.info(
+    {
+      method: c.req.method,
+      url: c.req.url,
+    },
+    'Incoming auth request'
+  );
+
+  try {
+    const res = await auth.handler(c.req.raw);
+
+    authLog.info(
+      {
+        status: res.status,
+      },
+      'Auth request handled successfully'
+    );
+
+    return res;
+  } catch (err) {
+    authLog.error(
+      {
+        err,
+        method: c.req.method,
+        url: c.req.url,
+      },
+      'Auth request failed'
+    );
+    throw err; // Let global error handler respond
+  }
+});
 
 app.use(
   '/trpc/*',
