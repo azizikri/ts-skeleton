@@ -1,10 +1,16 @@
 name: Deploy Web (Workers)
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'apps/web/**'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Git ref to deploy (branch, tag, or SHA)'
+        type: string
+        required: false
+      dry_run:
+        description: 'Build only, skip publish'
+        type: boolean
+        default: false
 
 jobs:
   deploy:
@@ -15,12 +21,15 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
       - uses: oven-sh/setup-bun@v2
       - name: Install
         run: bun install --frozen-lockfile
       - name: Build
         run: bun run build
       - name: Publish with Wrangler
+        if: ${{ !inputs.dry_run }}
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}

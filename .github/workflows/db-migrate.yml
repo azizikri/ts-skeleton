@@ -1,17 +1,20 @@
 name: Apply DB migrations
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'apps/server/src/db/**'
-      - 'apps/server/drizzle.config.ts'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Git ref to use (branch, tag, or SHA)'
+        type: string
+        required: false
 
 jobs:
   migrate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
       - uses: oven-sh/setup-bun@v2
       - name: Install server workspace only
         run: bun install --frozen-lockfile
