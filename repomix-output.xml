@@ -314,27 +314,6 @@ export const todo = pgTable("todo", {
 });
 </file>
 
-<file path="apps/server/src/lib/context.ts">
-import type { Context as HonoContext } from "hono";
-import { auth } from "./auth";
-
-export type CreateContextOptions = {
-  context: HonoContext;
-};
-
-export async function createContext({ context }: CreateContextOptions) {
-  const session = await auth.api.getSession({
-    headers: context.req.raw.headers,
-  });
-  return {
-    session,
-  };
-}
-
-
-export type Context = Awaited<ReturnType<typeof createContext>>;
-</file>
-
 <file path="apps/server/src/middlewares/logger.ts">
 import { createLogger } from '@packages/logger';
 import type { MiddlewareHandler } from 'hono';
@@ -2455,24 +2434,6 @@ dist
 }
 </file>
 
-<file path=".gitignore">
-node_modules
-.turbo
-
-
-# START Ruler Generated Files
-*.bak
-.github/copilot-instructions.md
-.github/copilot-instructions.md.bak
-.kilocode/mcp.json
-.kilocode/mcp.json.bak
-.kilocode/rules/ruler_kilocode_instructions.md
-.kilocode/rules/ruler_kilocode_instructions.md.bak
-.vscode/mcp.json
-.vscode/mcp.json.bak
-# END Ruler Generated Files
-</file>
-
 <file path=".oxlintrc.json">
 {
   "plugins": [
@@ -2887,6 +2848,26 @@ export const verification = pgTable('verification', {
 });
 </file>
 
+<file path="apps/server/src/lib/context.ts">
+import type { Context as HonoContext } from 'hono';
+import type { Logger } from 'pino';
+import { auth } from './auth';
+
+export type CreateContextOptions = { context: HonoContext };
+
+export async function createContext({ context }: CreateContextOptions) {
+  const logger: Logger = context.var.logger;
+
+  const session = await auth.api.getSession({
+    headers: context.req.raw.headers,
+  });
+
+  return { session, logger };
+}
+
+export type Context = Awaited<ReturnType<typeof createContext>>;
+</file>
+
 <file path="apps/server/src/lib/types.ts">
 import type { PinoLogger } from 'hono-pino';
 import type { Environment } from '@/env';
@@ -3094,6 +3075,25 @@ export const trpc = createTRPCOptionsProxy<AppRouter>({
 }
 </file>
 
+<file path=".gitignore">
+node_modules
+.turbo
+repomix-output.xml
+
+
+# START Ruler Generated Files
+*.bak
+.github/copilot-instructions.md
+.github/copilot-instructions.md.bak
+.kilocode/mcp.json
+.kilocode/mcp.json.bak
+.kilocode/rules/ruler_kilocode_instructions.md
+.kilocode/rules/ruler_kilocode_instructions.md.bak
+.vscode/mcp.json
+.vscode/mcp.json.bak
+# END Ruler Generated Files
+</file>
+
 <file path="tsconfig.json">
 {
   "compilerOptions": {
@@ -3108,25 +3108,6 @@ root="$(git rev-parse --show-toplevel)"
 cd "$root"
 
 bunx lint-staged
-</file>
-
-<file path=".husky/pre-push">
-set -euo pipefail
-
-root="$(git rev-parse --show-toplevel)"
-cd "$root"
-
-# Generate repo mix and stage changes
-bunx repomix .
-git add .
-
-if git rev-parse --verify origin/main >/dev/null 2>&1; then
-  bun run typecheck:changed
-  # bun run test:changed     # enable once tests exist
-else
-  bun run check-types
-  # bun run test             # enable once tests exist
-fi
 </file>
 
 <file path="apps/server/src/db/index.ts">
@@ -3213,126 +3194,36 @@ export const authLog = authLogger;
 }
 </file>
 
+<file path=".husky/pre-push">
+set -euo pipefail
+
+root="$(git rev-parse --show-toplevel)"
+cd "$root"
+
+# Generate repo mix and stage changes
+bunx repomix .
+
+if git rev-parse --verify origin/main >/dev/null 2>&1; then
+  bun run typecheck:changed
+  # bun run test:changed     # enable once tests exist
+else
+  bun run check-types
+  # bun run test             # enable once tests exist
+fi
+</file>
+
 <file path="apps/web/src/env.ts">
 import { z } from 'zod';
 
 const envSchema = z.object({
-  NODE_ENV: z
+  VITE_NODE_ENV: z
     .enum(['development', 'production', 'test'])
     .default('development'),
+  VITE_PORT: z.coerce.number().default(3001),
   VITE_SERVER_URL: z.url(),
 });
 
 export const env = envSchema.parse(import.meta.env);
-</file>
-
-<file path="turbo.json">
-{
-  "$schema": "https://turbo.build/schema.json",
-  "ui": "tui",
-  "globalEnv": [
-    "VITE_SERVER_URL",
-    "BETTER_AUTH_URL",
-    "BETTER_AUTH_SECRET",
-    "CORS_ORIGIN",
-    "DATABASE_URL"
-  ],
-  "tasks": {
-    "build": {
-      "dependsOn": ["^build"],
-      "inputs": ["$TURBO_DEFAULT$", ".env*"],
-      "outputs": ["dist/**"]
-    },
-    "lint": {
-      "dependsOn": ["^lint"]
-    },
-    "check-types": {
-      "dependsOn": ["^check-types"]
-    },
-    "dev": {
-      "dependsOn": ["^build"],
-      "cache": false,
-      "persistent": true
-    },
-    "db:push": {
-      "cache": false,
-      "persistent": true
-    },
-    "db:studio": {
-      "cache": false,
-      "persistent": true
-    },
-    "db:migrate": {
-      "cache": false,
-      "persistent": true
-    },
-    "db:generate": {
-      "cache": false,
-      "persistent": true
-    },
-    "db:start": {
-      "cache": false,
-      "persistent": true
-    },
-    "db:stop": {
-      "cache": false,
-      "persistent": true
-    },
-    "db:watch": {
-      "cache": false,
-      "persistent": true
-    },
-    "db:down": {
-      "cache": false,
-      "persistent": true
-    }
-  }
-}
-</file>
-
-<file path="apps/server/src/lib/trpc.ts">
-import { initTRPC } from '@trpc/server';
-
-export const createContext = ({ c }: { c: import('hono').Context }) => ({
-  logger: c.var.logger.child({ scope: 'trpc' }),
-});
-type Ctx = ReturnType<typeof createContext>;
-
-const t = initTRPC.context<Ctx>().create({
-  errorFormatter({ shape, error, ctx }) {
-    ctx?.logger?.error({ err: error, code: error.code }, 'trpc.error');
-    return shape;
-  },
-});
-
-export const router = t.router;
-export const publicProcedure = t.procedure.use(
-  async ({ ctx, path, next, type }) => {
-    const start = Date.now();
-    ctx.logger.info({ path, type }, 'trpc.start');
-    const res = await next();
-    ctx.logger.info({ path, type, duration_ms: Date.now() - start }, 'trpc.ok');
-    return res;
-  }
-);
-</file>
-
-<file path="apps/server/src/env.ts">
-import { z } from 'zod';
-import 'dotenv/config';
-
-const envSchema = z.object({
-  NODE_ENV: z
-    .enum(['development', 'production', 'test'])
-    .default('development'),
-  DATABASE_URL: z.url(),
-  CORS_ORIGIN: z.url(),
-  BETTER_AUTH_SECRET: z.string().min(1),
-  BETTER_AUTH_URL: z.url(),
-});
-
-export const env = envSchema.parse(process.env);
-export type Environment = z.infer<typeof envSchema>;
 </file>
 
 <file path="TODO.md">
@@ -3406,6 +3297,147 @@ misc
 - path file
 </file>
 
+<file path="turbo.json">
+{
+  "$schema": "https://turbo.build/schema.json",
+  "ui": "tui",
+  "globalEnv": [
+    "NODE_ENV",
+    "VITE_NODE_ENV",
+    "VITE_PORT",
+    "VITE_SERVER_URL",
+    "BETTER_AUTH_URL",
+    "BETTER_AUTH_SECRET",
+    "CORS_ORIGIN",
+    "DATABASE_URL"
+  ],
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "inputs": ["$TURBO_DEFAULT$", ".env*"],
+      "outputs": ["dist/**"]
+    },
+    "lint": {
+      "dependsOn": ["^lint"]
+    },
+    "check-types": {
+      "dependsOn": ["^check-types"]
+    },
+    "dev": {
+      "dependsOn": ["^build"],
+      "cache": false,
+      "persistent": true
+    },
+    "db:push": {
+      "cache": false,
+      "persistent": true
+    },
+    "db:studio": {
+      "cache": false,
+      "persistent": true
+    },
+    "db:migrate": {
+      "cache": false,
+      "persistent": true
+    },
+    "db:generate": {
+      "cache": false,
+      "persistent": true
+    },
+    "db:start": {
+      "cache": false,
+      "persistent": true
+    },
+    "db:stop": {
+      "cache": false,
+      "persistent": true
+    },
+    "db:watch": {
+      "cache": false,
+      "persistent": true
+    },
+    "db:down": {
+      "cache": false,
+      "persistent": true
+    }
+  }
+}
+</file>
+
+<file path="apps/server/src/lib/trpc.ts">
+import { initTRPC, TRPCError } from '@trpc/server';
+import { env } from '@/env';
+import type { Context } from './context';
+
+const isProd = env.NODE_ENV === 'production';
+
+export const t = initTRPC.context<Context>().create({
+  errorFormatter({ shape, error, ctx }) {
+    ctx?.logger?.error(
+      // biome-ignore lint/suspicious/noExplicitAny: <error>
+      { err: error, path: (error as any)?.path },
+      'tRPC procedure failed'
+    );
+
+    return {
+      ...shape,
+      data: {
+        ...shape.data,
+        cause: error.cause,
+        stack: isProd ? undefined : error.stack,
+      },
+    };
+  },
+});
+
+export const router = t.router;
+export const publicProcedure = t.procedure;
+
+export const protectedProcedure = t.procedure.use(
+  ({ ctx, path, type, next }) => {
+    ctx.logger?.info({ path, type }, 'protectedProcedure start');
+
+    if (!ctx.session) {
+      ctx.logger?.warn(
+        { path, type },
+        'Unauthorized access attempt: no session'
+      );
+      throw new TRPCError({
+        code: 'UNAUTHORIZED',
+        message: 'Authentication required',
+        cause: 'No session',
+      });
+    }
+
+    ctx.logger?.info(
+      { path, type, userId: ctx.session.user.id },
+      'protectedProcedure authorized'
+    );
+
+    return next({ ctx: { ...ctx, session: ctx.session } });
+  }
+);
+</file>
+
+<file path="apps/server/src/env.ts">
+import { z } from 'zod';
+import 'dotenv/config';
+
+const envSchema = z.object({
+  NODE_ENV: z
+    .enum(['development', 'production', 'test'])
+    .default('development'),
+  PORT: z.coerce.number().default(3001),
+  DATABASE_URL: z.url(),
+  CORS_ORIGIN: z.url(),
+  BETTER_AUTH_SECRET: z.string().min(1),
+  BETTER_AUTH_URL: z.url(),
+});
+
+export const env = envSchema.parse(process.env);
+export type Environment = z.infer<typeof envSchema>;
+</file>
+
 <file path="package.json">
 {
   "name": "ts-skeleton",
@@ -3432,8 +3464,8 @@ misc
     "db:stop": "turbo -F server db:stop",
     "db:down": "turbo -F server db:down",
     "prepare": "husky",
-    "typecheck:changed": "turbo run check-types --since=origin/main...",
-    "test:changed": "turbo run test --since=origin/main..."
+    "typecheck:changed": "turbo run check-types --affected",
+    "test:changed": "turbo run test --affected"
   },
   "dependencies": {
     "@packages/logger": "workspace:*",
@@ -3560,7 +3592,10 @@ app.onError((err, c) => {
   );
 });
 
-export default app;
+export default {
+  port: env.PORT,
+  fetch: app.fetch,
+};
 </file>
 
 </files>
