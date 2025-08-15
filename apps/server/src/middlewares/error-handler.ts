@@ -1,49 +1,39 @@
-import type { Context, Next } from 'hono';
+import type { MiddlewareHandler } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 
-const isProd = process.env.NODE_ENV === 'production';
-
-type ErrorBody = {
-  status: number;
-  error: string;
-  message: string;
-  stack?: string;
-};
-
-function toBody(
-  status: number,
-  error: string,
-  message: string,
-  stack?: string
-): ErrorBody {
-  return { status, error, message, stack: isProd ? undefined : stack };
-}
-
-export async function errorHandler(c: Context, next: Next) {
+export const errorHandler: MiddlewareHandler = async (c, next) => {
   try {
     await next();
   } catch (err) {
-    // biome-ignore lint/suspicious/noExplicitAny: for error
-    const e = err as any;
-    if (e instanceof HTTPException) {
-      const status = e.status ?? 500;
+    if (err instanceof HTTPException) {
+      const status = err.status;
+      const message = err.message || 'HTTP Error';
       return c.json(
-        toBody(status, 'HTTPException', e.message, e.stack),
+        {
+          status,
+          error: 'HTTPException',
+          message,
+          ...(process.env.NODE_ENV !== 'production' && {
+            // biome-ignore lint/suspicious/noExplicitAny: <any>
+            stack: (err as any).stack,
+          }),
+        },
         status
       );
     }
-    const status = typeof e?.status === 'number' ? e.status : 500;
-    const message = e?.message ?? 'Internal Server Error';
-    const logger = c.var?.logger;
-    logger?.error({ err, status }, 'unhandled.error');
+
+    const message =
+      err instanceof Error ? err.message : 'Internal Server Error';
+    const stack = err instanceof Error ? err.stack : undefined;
+
     return c.json(
-      toBody(
-        status,
-        status >= 500 ? 'InternalServerError' : 'Error',
+      {
+        status: 500,
+        error: 'InternalServerError',
         message,
-        e?.stack
-      ),
-      status
+        ...(process.env.NODE_ENV !== 'production' && { stack }),
+      },
+      500
     );
   }
-}
+};
