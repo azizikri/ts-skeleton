@@ -95,6 +95,8 @@ app.onError((err, c) => {
   );
 });
 
+export { app };
+
 export default {
   port: env.PORT,
   fetch: app.fetch,
